@@ -5,10 +5,18 @@ This repository is for implementation for the paper "On Existential First Order 
 See the arXiv version [here](https://arxiv.org/abs/2304.07063).
 
 ## 1 Preparation
-
+Firstly, make the directory of `data` and `sparse` in the root directory of this repository.
+```angular2html
+mkdir data
+mkdir sparse
+```
 ### 1.1 Data Preparation
-Please download the data from [here](https://drive.google.com/drive/folders/17bPr6_ESqh5D0LgWNgpE4mY8gpg2iC5o?usp=sharing), 
-the data of three knowledge graphs can be downloaded separately and put it in the `data` folder.
+Please download the data from [here](https://drive.google.com/drive/folders/17bPr6_ESqh5D0LgWNgpE4mY8gpg2iC5o?usp=sharing).
+
+
+
+
+the data of three knowledge graphs can be downloaded separately and put it in the `data` folder and unzip it.
 
 A example data folder should look like this:
 ```
@@ -31,7 +39,7 @@ and converted to the format that can be used in our experiment.
 The matrix that has been used in the paper can also be downloaded from [here](https://drive.google.com/drive/folders/17bPr6_ESqh5D0LgWNgpE4mY8gpg2iC5o?usp=sharing), 
 where contains the matrix used for three knowledge graphs. We contain multiple checkpoint for each knowledge graph.
 
-It should be unzipped and put in the `sparse` folder.
+It should be put in the `sparse` folder and unzipped.
 
 An example of the `sparse` sub folder should look like this:
 ```
