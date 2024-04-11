@@ -2,7 +2,7 @@ import json
 import os.path as osp
 
 
-from lifted_embedding_estimation_with_truth_value import DNF_lstr2name
+from train_lmpnn import DNF_lstr2name
 
 false_name2lstr = {
     "1p": "r1(s1,f)",

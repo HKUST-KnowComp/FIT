@@ -1,22 +1,14 @@
-# On Existential First Order Queries Inference on Knowledge Graphs
+# Rethinking Complex Queries on Knowledge Graphs with Neural Link Predictors
 
-This repository is for implementation for the paper "On Existential First Order Queries Inference on Knowledge Graphs".
+This repository is for implementation for the paper "Rethinking Complex Queries on Knowledge Graphs with Neural Link Predictors" of ICLR 2024. 
+See the [openreview version](https://openreview.net/forum?id=1BmveEMNbG), or [arxiv version](https://arxiv.org/abs/2304.07063).
 
-See the arXiv version [here](https://arxiv.org/abs/2304.07063).
 
 ## 1 Preparation
-Firstly, make the directory of `data` and `sparse` in the root directory of this repository.
-```angular2html
-mkdir data
-mkdir sparse
-```
+
 ### 1.1 Data Preparation
-Please download the data from [here](https://drive.google.com/drive/folders/17bPr6_ESqh5D0LgWNgpE4mY8gpg2iC5o?usp=sharing).
-
-
-
-
-the data of three knowledge graphs can be downloaded separately and put it in the `data` folder and unzip it.
+Please download the data from [here](https://drive.google.com/drive/folders/17bPr6_ESqh5D0LgWNgpE4mY8gpg2iC5o?usp=sharing), 
+the data of three knowledge graphs can be downloaded separately and put it in the `data` folder.
 
 A example data folder should look like this:
 ```
@@ -25,76 +17,122 @@ data/FB15k-237-EFO1
   - train_kg.tsv
   - valid_kg.tsv
   - test_kg.tsv
-  - train-qaa.json
-  - valid-qaa.json
-  - test-qaa.json
-  - test_real_EFO1_qaa.json
+  - train_qaa.json
+  - valid_type0000_real_EFO1_qaa.json
+  - valid_...
+  - valid_type0000_real_EFO1_qaa.json
+  - test_...
+```
+We note that there is only one file for training but multiple files for testing. 
+
+Moreover, the four csv files containing the formulas used in training and testing should be directly put into the `data` folder:
+```
+data/FIT_finetune1p3in.csv
+  - DNF_evaluate_EFO1.csv
+  - FIT_quick_evaluate.csv
+  - DNF_evaluate_c.csv
 ```
 
-where only the `test_real_EFO1_qaa.json` is used for the real EFO1 experiment. Other data are inherited from the original BetaE dataset 
-and converted to the format that can be used in our experiment.
+The data of formula type0000-type0013 are inherited from the original BetaE dataset and converted 
+to the format that can be used in our experiment, type0014-type0023 are the ten new formulas sampled by ourself.
 
-### 1.2 Matrix Creation
+Moreover, one can also use our pipeline to sample query for their own after 
+you have already downloaded the knowledge graph from above.
 
-The matrix that has been used in the paper can also be downloaded from [here](https://drive.google.com/drive/folders/17bPr6_ESqh5D0LgWNgpE4mY8gpg2iC5o?usp=sharing), 
-where contains the matrix used for three knowledge graphs. We contain multiple checkpoint for each knowledge graph.
+We give the example of sampling query for test from FB15k-237:
 
-It should be put in the `sparse` folder and unzipped.
-
-An example of the `sparse` sub folder should look like this:
+```angular2html
+python sample_query.py --output_folder data/FB15k-237-EFO1 --data_folder data/FB15k-237-EFO1 --mode test
 ```
-sparse/237
-  - torch_0.005_0.001.ckpt
+
+### 1.2 Finetuning the neurla link preictor
+
+To train the model, first download checkpoint of pretrained neural link predictor 'pretrain_cqd.zip' from [here](https://drive.google.com/drive/folders/17bPr6_ESqh5D0LgWNgpE4mY8gpg2iC5o?usp=sharing).
+
+Unzip the file, the folder `pretrain/cqd` should look like this:
 ```
+pretrain/cqd/FB15k-237.pt
+  - FB15k.pt
+  - NELL.pt
+```
+
+Then you can finetune these models by running the following code, taking FB15k-237 as an example:
+
+```
+python QG_FIT.py --config config/real_EFO1/FIT_FB15k-237_EFO1.yaml
+```
+
+
 
 ## 2. Reproduce the result of the paper.
 
-### 2.1 In real EFO1 dataset
+### 2.1 Evaluation
 
-For the reproduction of the experiment on FB15k-237 and FB15k in paper, run the following code:
+When comes to the evaluation, you need to use the fine-tuned neural link predictor get in the first step, 
+or you can download the fine-tuned model 'pretrain_FIT.zip' from [here](https://drive.google.com/drive/folders/17bPr6_ESqh5D0LgWNgpE4mY8gpg2iC5o?usp=sharing).
+After downloading or finetuning, move the checkpoint into `pretrain/FIT` folder, the folder should look like this:
 ```
-## python solve_EFO1.py --ckpt 'sparse/237/torch_0.005_0.001.ckpt' --data_folder data/FB15k-237-EFO1
-## python solve_EFO1.py --ckpt 'sparse/FB15k/torch_0.005_0.001.ckpt' --data_folder data/FB15k-EFO1
+pretrain/FIT/FB15k-237/5000.ckpt
+  - /FB15k/...
+  - /NELL/...
+```
+If you fineutune the neural link predictor yourself, you should also put the checkpoint in the corresponding folder.
+(Manually assign the path of the checkpoint in the config file for testing is also OK, in 'load'/'checkpoint_path' and 'load'/'step')
+
+Then you can run the following code, taking FB15k-237 as an example:
+```
+python QG_FIT.py --config config/test_EFO1/FIT_FB15k-237_EFO1.yaml
 ```
 
-In case you have problem with your gpu memory, for example, for example, the experiments on the NELL dataset, you can run the following code:
+
+We note that the matrix can be directly created by the finetuned neural link predictor, but it will take a long time 
+when it is created at the first time, then it will be saved in the `sparse` folder.
+
+An example of the `sparse` sub folder should look like this:
 ```
-## python solve_EFO1.v2.py --batch_size 1 --ckpt 'sparse/NELL/torch_0.001_0.001.ckpt' --data_folder data/NELL-EFO1
+sparse/FB15k-237
+  - finetune_1p3in.ckpt
 ```
 
-### 2.1 In BetaE dataset.
 
-Simple changing the data_type to BetaE, you can reproduce the result in BetaE dataset, taking FB15k-237 as an example:
-```
-python solve_EFO1.py --ckpt 'sparse/237/torch_0.005_0.001.ckpt' --data_folder data/FB15k-237-EFO1 --data_type BetaE
-```
 
 ### 2.2 Ablation Study
 If you want to reproduce the ablation study of the influence of hyperparameter, you can make some adjustment as the following.
-For different c_norm:
-```
-## python solve_EFO1.py --c_norm Godel
-```
+
 For different max enumeration:
 ```
-## python solve_EFO1.py --max 5
-## python solve_EFO1.py --max 20
+python QG_FIT.py --config config/test_EFO1/FIT_FB15k-237_m5.yaml
+python QG_FIT.py --config config/test_EFO1/FIT_FB15k-237_m15.yaml
 ```
 
 For different epsilon, delta:
 ```
-## python solve_EFO1.py --ckpt 'sparse/237/torch_0.01_0.001.ckpt'
-## python solve_EFO1.py --ckpt 'sparse/237/torch_0.01_0.01.ckpt'
+python QG_FIT.py --config config/test_EFO1/FIT_FB15k-237_EFO1_eps01.yaml
+python QG_FIT.py --config config/test_EFO1/FIT_FB15k-237_EFO1_thres01.yaml
+python QG_FIT.py --config config/test_EFO1/FIT_FB15k-237_EFO1_thres02.yaml
 ```
+
+
+For different c_norm, it is a bit complicated as new neural link predictor should be finetuned first:
+```
+python QG_FIT.py --config config/real_EFO1/FIT_FB15k-237_Godel.yaml
+```
+After assigning the path of the finetuned model in the config file,
+(you can also download the finetune neural link predictor [here](https://drive.google.com/drive/folders/17bPr6_ESqh5D0LgWNgpE4mY8gpg2iC5o?usp=sharing)) you can run the following code:
+
+```
+python QG_FIT.py --config config/test_EFO1/FIT_FB15k-237_Godel.yaml
+```
+
 
 ## 3. Citing the paper
 
 Please cite the paper if you found the resources in this repository useful.
-
 ```
-@article{yin2023existential,
-  title={On Existential First Order Queries Inference on Knowledge Graphs},
+@inproceedings{yin2023rethinking,
+  title={Rethinking Complex Queries on Knowledge Graphs with Neural Link Predictors},
   author={Yin, Hang and Wang, Zihao and Song, Yangqiu},
-  journal={arXiv preprint arXiv:2304.07063},
+  booktitle={The Twelfth International Conference on Learning Representations},
   year={2023}
 }
+```

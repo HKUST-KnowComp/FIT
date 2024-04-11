@@ -4,7 +4,7 @@ from random import random, sample
 import networkx as nx
 from networkx.algorithms.components import connected_components
 
-from .fof import *
+from .foq import *
 
 def sample_efo_dnf_query(p, q, r,
                          per,
@@ -56,7 +56,7 @@ def sample_efo_dnf_query(p, q, r,
             termpair = (k1, k2)
             pred2termpair[pid] = termpair
 
-            _pred = BinaryPredicate(
+            _pred = Atomic(
                 relation_id=-1, head=terms[k1], tail=terms[k2])
             predicates[pid] = _pred
 

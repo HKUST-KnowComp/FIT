@@ -11,7 +11,7 @@ from random import sample
 
 import torch
 from torch import nn
-from src.language.fof import (BinaryPredicate, Conjunction, Disjunction,
+from src.language.foq import (Atomic, Conjunction, Disjunction,
                               ConjunctiveFormula, Negation, Term)
 from src.language.tnorm import Tnorm
 from src.structure.neural_binary_predicate import NeuralBinaryPredicate
@@ -115,7 +115,7 @@ class Reasoner:
                     begin_index,
                     end_index))
 
-        elif isinstance(formula, BinaryPredicate):
+        elif isinstance(formula, Atomic):
             head_name = formula.head.name
             if free_var_emb_dict and formula.head.is_free:
                 head_emb = free_var_emb_dict[head_name]
@@ -577,7 +577,7 @@ class DeepsetEFOReasoner(Reasoner):
             ent_rel_ord = []
             for pred_name in related_predicate_list:
                 head, tail = self.formula.predicate_dict[pred_name].get_terms()
-                neg = self.formula.predicate_dict[pred_name].skolem_negation
+                neg = self.formula.predicate_dict[pred_name].negated
                 rel_id = self.formula.get_pred_grounded_relation_id_list(pred_name)
                 rel_id = rel_id[begin_index: end_index]
                 rel = self.nbp.get_relation_emb(rel_id)
@@ -676,7 +676,7 @@ class DeepsetEFOReasoner(Reasoner):
                     begin_index,
                     end_index))
 
-        elif isinstance(formula, BinaryPredicate):
+        elif isinstance(formula, Atomic):
             head_name = formula.head.name
             if free_var_emb_dict and formula.head.is_free:
                 head_emb = free_var_emb_dict[head_name]
@@ -757,7 +757,7 @@ class LogicalGNNLayerComplEx(nn.Module):
             tail_embs = tail_emb[..., :self.emb_dim], tail_emb[..., self.emb_dim:]
             pred_emb = pred_emb_dict[pred.name]
             pred_embs = pred_emb[..., :self.emb_dim], pred_emb[..., self.emb_dim:]
-            sign = -1 if pred.skolem_negation else 1
+            sign = -1 if pred.negated else 1
             term_collect_embs_dict[head_name].append(
                 sign * complex_vector_multiplication(
                     tail_embs[0], tail_embs[1], pred_embs[0], -pred_embs[1])
@@ -844,7 +844,7 @@ class LogicalGNNLayerRotatE(nn.Module):
 
             
             
-            sign = -1 if pred.skolem_negation else 1
+            sign = -1 if pred.negated else 1
             term_collect_embs_dict[head_name].append(
                 sign * complex_vector_multiplication(
                     tail_embs[0], tail_embs[1], pred_embs[0], -pred_embs[1])
@@ -926,7 +926,7 @@ class VanillaGNNLayerComplEx(nn.Module):
             head_emb = term_emb_dict[head_name]
             tail_emb = term_emb_dict[tail_name]
             pred_emb = pred_emb_dict[pred.name]
-            sign = -1 if pred.skolem_negation else 1
+            sign = -1 if pred.negated else 1
             
             head_emb = head_emb.expand(pred_emb.shape)
             tail_emb = tail_emb.expand(pred_emb.shape)

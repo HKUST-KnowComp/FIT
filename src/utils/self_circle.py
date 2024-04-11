@@ -1,6 +1,5 @@
 import os.path as osp
 
-from create_matrix import create_matrix_from_ckpt
 from src.structure.knowledge_graph import KnowledgeGraph
 from src.structure.knowledge_graph_index import KGIndex
 

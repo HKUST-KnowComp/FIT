@@ -1,5 +1,7 @@
 .vscode
 .idea
+*.pt
+*.txt
 **/__pycache__
 data
 log

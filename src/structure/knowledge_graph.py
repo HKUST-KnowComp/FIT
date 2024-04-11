@@ -25,8 +25,8 @@ class KnowledgeGraph:
     def __init__(self, triples: List[Triple], kgindex: KGIndex, device='cpu', tensorize=False, **kwargs):
         self.triples = triples
         self.kgindex = kgindex
-        self.num_entities = kgindex.num_entities
-        self.num_relations = kgindex.num_relations
+        self.num_entities: int = kgindex.num_entities
+        self.num_relations: int = kgindex.num_relations
         self.device = device
 
         self.hr2t = defaultdict(set)
@@ -301,8 +301,8 @@ class KnowledgeGraph:
         return self._get_non_neightbor_triples(entities, k=k, reverse=True)
 
 
-def subgraph_matching(sub_graph: KnowledgeGraph, neg_sub_graph: KnowledgeGraph, now_candidate_set: defaultdict,
-                      data_graph: KnowledgeGraph):
+def csp_efo1(sub_graph: KnowledgeGraph, neg_sub_graph: KnowledgeGraph, now_candidate_set: defaultdict,
+             data_graph: KnowledgeGraph):
     if not sub_graph.triples and not neg_sub_graph.triples:
         return now_candidate_set, True
     if len(now_candidate_set) == 1:
@@ -346,6 +346,144 @@ def subgraph_matching(sub_graph: KnowledgeGraph, neg_sub_graph: KnowledgeGraph, 
                         collect_guess_ans[sub_node].update(answer[sub_node])
             exist_final_answer = bool(collect_guess_ans[guess_node])
             return collect_guess_ans, exist_final_answer
+
+
+def csp_efox(sub_graph: KnowledgeGraph, neg_sub_graph: KnowledgeGraph, now_candidate_set: defaultdict,
+             data_graph: KnowledgeGraph, free_variable_list: List):
+    """
+    Returns a list of dict, example:
+    [{'f1': 13536, 'f2': 11440}, {'f1': 11441, 'f2': 11440}, {'f1': 7000, 'f2': 11440}]
+    """
+    if not sub_graph.triples and not neg_sub_graph.triples:
+        copy_candidate_set = deepcopy(now_candidate_set)
+        for variable_name in now_candidate_set:
+            if variable_name not in free_variable_list:
+                copy_candidate_set.pop(variable_name)
+        if len(copy_candidate_set.keys()) == 0:
+            exist_existential_ans = True
+            for variable_name in now_candidate_set:
+                if not now_candidate_set[variable_name]:
+                    exist_existential_ans = False
+                    break
+            if exist_existential_ans:
+                return [{}], True
+            else:
+                return None, False
+        answer_list = candidate_set_to_ans(copy_candidate_set)
+        return answer_list, bool(answer_list)
+    if len(now_candidate_set) == 1:
+        answer_list = candidate_set_to_ans(now_candidate_set)
+        return answer_list, bool(answer_list)
+    now_leaf_node, adjacency_node = find_leaf_node(sub_graph, neg_sub_graph, now_candidate_set)
+    if now_leaf_node:  # If there exists leaf node in the query graph, always possible to shrink into a sub_problem.
+        adjacency_node_set = {adjacency_node}
+        answer, exist_answer = cut_node_sub_problem_x(now_leaf_node, adjacency_node_set, sub_graph, neg_sub_graph,
+                                                      now_candidate_set, data_graph, free_variable_list)
+        return answer, exist_answer
+    else:
+        before_topology_set = node_filter(sub_graph, now_candidate_set, data_graph)
+        topology_filtered_set = topology_filter(sub_graph, neg_sub_graph, before_topology_set, data_graph)
+        while before_topology_set != topology_filtered_set:
+            before_topology_set = topology_filtered_set
+            topology_filtered_set = topology_filter(sub_graph, neg_sub_graph, before_topology_set, data_graph)
+        guess_node = min(now_candidate_set.items(), key=lambda x: len(x[1]))[0]   # Has to take a guess here.
+        collect_guess_ans = []
+        for candidate in now_candidate_set[guess_node]:
+            new_candidate_set = deepcopy(now_candidate_set)
+            new_candidate_set[guess_node] = {candidate}
+            adjacency_node_set = set.union(*[sub_graph.h2t[guess_node], sub_graph.t2h[guess_node],
+                                             neg_sub_graph.h2t[guess_node], neg_sub_graph.t2h[guess_node]])
+            if guess_node in free_variable_list:
+                new_free_variable_list = deepcopy(free_variable_list)
+                new_free_variable_list.remove(guess_node)
+                answer, exist_answer = cut_node_sub_problem_x(guess_node, adjacency_node_set, sub_graph,
+                                                              neg_sub_graph,
+                                                              new_candidate_set, data_graph, new_free_variable_list)
+            else:
+                answer, exist_answer = cut_node_sub_problem_x(guess_node, adjacency_node_set, sub_graph,
+                                                              neg_sub_graph,
+                                                              new_candidate_set, data_graph, free_variable_list)
+            if exist_answer:
+                for answer_instance in answer:
+                    if guess_node in free_variable_list:
+                        copy_instance = deepcopy(answer_instance)
+                        copy_instance[guess_node] = candidate
+                        collect_guess_ans.append(copy_instance)
+                    else:
+                        collect_guess_ans.append(answer_instance)
+        exist_final_answer = bool(collect_guess_ans)
+        return collect_guess_ans, exist_final_answer
+
+
+def candidate_set_to_ans(now_candidate_set):
+    if len(now_candidate_set) == 1:
+        only_var = list(now_candidate_set.keys())[0]
+        ans_list = []
+        for candidate in now_candidate_set[only_var]:
+            ans_list.append({only_var: candidate})
+        return ans_list
+    random_key = random.choice(list(now_candidate_set.keys()))
+    this_node_candidate = now_candidate_set.pop(random_key)
+    sub_ans_list = candidate_set_to_ans(now_candidate_set)
+    new_ans_list = []
+    for sub_ans in sub_ans_list:
+        for candidate in this_node_candidate:
+            new_ans = copy.deepcopy(sub_ans)
+            new_ans[random_key] = candidate
+            new_ans_list.append(new_ans)
+    return new_ans_list
+
+
+'''
+def get_final_answer(sub_graph: KnowledgeGraph, neg_sub_graph: KnowledgeGraph, now_candidate_set: defaultdict,
+             data_graph: KnowledgeGraph, free_variable_list: List):
+    """
+    In this function, we get the final answer since EFOX requires some manual backtracking.
+    """
+    assert set(free_variable_list) == set(now_candidate_set.keys())
+    now_leaf_node, adjacency_node = find_leaf_node(sub_graph, neg_sub_graph, now_candidate_set)
+    if now_leaf_node:  # Again, leaf node can be neglected for now.
+        adjacency_node_set = {adjacency_node}
+        answer, exist_answer = cut_node_final_answer(now_leaf_node, adjacency_node_set, sub_graph, neg_sub_graph,
+                                                    now_candidate_set, data_graph, free_variable_list)
+        return answer, exist_answer
+    else:
+        
+
+    
+def cut_node_final_answer(to_cut_node, adjacency_node_set, sub_graph: KnowledgeGraph,
+                         neg_sub_graph: KnowledgeGraph, now_candidate_set, data_graph: KnowledgeGraph,
+                          free_variable_list: List):
+    new_candidate_set = copy.deepcopy(now_candidate_set)
+    all_adj_exist_ans = True
+    for adjacency_node in adjacency_node_set:
+        new_candidate_set, adj_exist_ans = node_pair_filtering(to_cut_node, adjacency_node, sub_graph, neg_sub_graph,
+                                                               new_candidate_set, data_graph)
+        all_adj_exist_ans = adj_exist_ans and all_adj_exist_ans
+    if not all_adj_exist_ans:
+        return None, False
+    new_sub_graph, new_sub_neg_graph = kg_remove_node(sub_graph, to_cut_node), \
+        kg_remove_node(neg_sub_graph, to_cut_node)
+    cut_node_candidate_set = new_candidate_set.pop(to_cut_node)
+    sub_free_variable_list = free_variable_list.remove(to_cut_node)
+    sub_answer, sub_exist_answer = get_final_answer(new_sub_graph, new_sub_neg_graph, new_candidate_set,
+                                            data_graph, sub_free_variable_list)
+    if sub_exist_answer:
+        new_answer_list = []
+        for answer_instance in sub_answer:
+            copy_answer_instance = copy.deepcopy(answer_instance)
+            cut_node_instance_set = copy.deepcopy(cut_node_candidate_set)
+            for adjacency_node in adjacency_node_set:
+                cut_node_instance_candidate, adj_exist_ans = node_pair_filtering(
+                    to_cut_node, adjacency_node, sub_graph, neg_sub_graph, copy.deepcopy(answer_instance), data_graph)
+                cut_node_instance_set = cut_node_instance_set.intersection(cut_node_instance_candidate)
+            for instance_candidate in cut_node_instance_set:
+                copy_answer_instance[to_cut_node] = instance_candidate
+                new_answer_list.append(copy_answer_instance)
+        return new_answer_list, bool(len(new_answer_list))
+    else:
+        return None, False
+'''
 
 
 def node_filter(sub_graph, now_candidate_set, data_graph):  # negation is useless here.
@@ -396,13 +534,28 @@ def topology_filter(sub_graph: KnowledgeGraph, neg_sub_graph: KnowledgeGraph, no
     return now_candidate_set
 
 
-def node_pair_filtering(leaf_node, adjacency_node, sub_graph: KnowledgeGraph, neg_sub_graph: KnowledgeGraph,
+def node_pair_filtering(now_node, to_change_node, sub_graph: KnowledgeGraph, neg_sub_graph: KnowledgeGraph,
                         now_candidate_set, data_graph: KnowledgeGraph) -> Tuple[defaultdict, bool]:
-    node_pair, reverse_node_pair = (leaf_node, adjacency_node), (adjacency_node, leaf_node)
+    """
+    Use now node to change to_change node
+    """
+    node_pair, reverse_node_pair = (now_node, to_change_node), (to_change_node, now_node)
     h2t_relation, t2h_relation = sub_graph.ht2r[node_pair], sub_graph.ht2r[reverse_node_pair]
     h2t_negation, t2h_negation = neg_sub_graph.ht2r[node_pair], neg_sub_graph.ht2r[reverse_node_pair]
     all_successor = set()
-    for candidate_leaf in now_candidate_set[leaf_node]:
+    if len(now_candidate_set[now_node]) == data_graph.num_entities:  # Special speed up for whole set.
+        if len(h2t_relation) + len(t2h_relation) + len(h2t_negation) + len(t2h_negation) == 1:
+            if len(h2t_relation) == 1:
+                now_candidate_set[to_change_node] = now_candidate_set[to_change_node].intersection(
+                    data_graph.r2t[list(h2t_relation)[0]])
+            elif len(t2h_relation) == 1:
+                now_candidate_set[to_change_node] = now_candidate_set[to_change_node].intersection(
+                    data_graph.r2h[list(t2h_relation)[0]])
+            else:
+                pass  # Do nothing because it is negation.
+            exist_answer = (len(now_candidate_set[to_change_node]) != 0)
+            return now_candidate_set, exist_answer
+    for candidate_leaf in now_candidate_set[now_node]:
         single_node_successor = set(range(data_graph.num_entities))
         if h2t_relation:
             h2t_constraint = set.intersection(*[data_graph.hr2t[(candidate_leaf, rel)] for rel in h2t_relation])
@@ -417,9 +570,36 @@ def node_pair_filtering(leaf_node, adjacency_node, sub_graph: KnowledgeGraph, ne
             t2h_negation_exclude = set.union(*[data_graph.tr2h[(candidate_leaf, rel)] for rel in t2h_negation])
             single_node_successor = single_node_successor.difference(t2h_negation_exclude)
         all_successor.update(single_node_successor)
-    now_candidate_set[adjacency_node] = now_candidate_set[adjacency_node].intersection(all_successor)
-    exist_answer = (len(now_candidate_set[adjacency_node]) != 0)
+    now_candidate_set[to_change_node] = now_candidate_set[to_change_node].intersection(all_successor)
+    exist_answer = (len(now_candidate_set[to_change_node]) != 0)
     return now_candidate_set, exist_answer
+
+
+def node_pair_correspondence(now_node, to_change_node, sub_graph: KnowledgeGraph, neg_sub_graph: KnowledgeGraph,
+                             now_candidate_set, data_graph: KnowledgeGraph):
+    """
+    We want to find a one-many correspondence from adjacency node to leaf node.
+    """
+    node_pair, reverse_node_pair = (now_node, to_change_node), (to_change_node, now_node)
+    h2t_relation, t2h_relation = sub_graph.ht2r[node_pair], sub_graph.ht2r[reverse_node_pair]
+    h2t_negation, t2h_negation = neg_sub_graph.ht2r[node_pair], neg_sub_graph.ht2r[reverse_node_pair]
+    correspondece_dict = {}
+    for candidate_leaf in now_candidate_set[now_node]:
+        single_node_successor = set(range(data_graph.num_entities))
+        if h2t_relation:
+            h2t_constraint = set.intersection(*[data_graph.hr2t[(candidate_leaf, rel)] for rel in h2t_relation])
+            single_node_successor = h2t_constraint
+        if t2h_relation:
+            t2h_constraint = set.intersection(*[data_graph.tr2h[(candidate_leaf, rel)] for rel in t2h_relation])
+            single_node_successor = single_node_successor.intersection(t2h_constraint)
+        if h2t_negation:
+            h2t_negation_exclude = set.union(*[data_graph.hr2t[(candidate_leaf, rel)] for rel in h2t_negation])
+            single_node_successor = single_node_successor.difference(h2t_negation_exclude)
+        if t2h_negation:
+            t2h_negation_exclude = set.union(*[data_graph.tr2h[(candidate_leaf, rel)] for rel in t2h_negation])
+            single_node_successor = single_node_successor.difference(t2h_negation_exclude)
+        correspondece_dict[candidate_leaf] = single_node_successor
+    return correspondece_dict
 
 
 def find_leaf_node(sub_graph: KnowledgeGraph, neg_sub_graph: KnowledgeGraph, now_candidate):
@@ -466,8 +646,8 @@ def cut_node_sub_problem(to_cut_node, adjacency_node_set, sub_graph: KnowledgeGr
     new_sub_graph, new_sub_neg_graph = kg_remove_node(sub_graph, to_cut_node), \
                                        kg_remove_node(neg_sub_graph, to_cut_node)
     cut_node_candidate_set = new_candidate_set.pop(to_cut_node)
-    sub_answer, sub_exist_answer = subgraph_matching(new_sub_graph, new_sub_neg_graph, new_candidate_set,
-                                                     data_graph)
+    sub_answer, sub_exist_answer = csp_efo1(new_sub_graph, new_sub_neg_graph, new_candidate_set,
+                                            data_graph)
     if sub_exist_answer:
         sub_answer[to_cut_node] = cut_node_candidate_set
         if len(cut_node_candidate_set) != 1:  # In this case, the reason to cut is leaf node, we double check the ans.
@@ -478,6 +658,61 @@ def cut_node_sub_problem(to_cut_node, adjacency_node_set, sub_graph: KnowledgeGr
             return extended_answer, exist_answer
         else:
             return sub_answer, True
+    else:
+        return None, False
+
+
+def cut_node_sub_problem_x(to_cut_node, adjacency_node_set, sub_graph: KnowledgeGraph, neg_sub_graph: KnowledgeGraph,
+                           now_candidate_set, data_graph: KnowledgeGraph, free_variable_list):
+    """
+    We need to pay attention to whether to_cut_node is in the free_variable_list.
+    """
+    new_candidate_set = copy.deepcopy(now_candidate_set)
+    all_adj_exist_ans = True
+    for adjacency_node in adjacency_node_set:
+        new_candidate_set, adj_exist_ans = node_pair_filtering(to_cut_node, adjacency_node, sub_graph, neg_sub_graph,
+                                                               new_candidate_set, data_graph)
+        all_adj_exist_ans = adj_exist_ans and all_adj_exist_ans
+    if not all_adj_exist_ans:
+        return None, False
+    new_sub_graph, new_sub_neg_graph = kg_remove_node(sub_graph, to_cut_node), \
+                                       kg_remove_node(neg_sub_graph, to_cut_node)
+    cut_node_candidate_set = new_candidate_set.pop(to_cut_node)
+    new_free_variable_list = copy.deepcopy(free_variable_list)
+    if to_cut_node in free_variable_list:
+        new_free_variable_list.remove(to_cut_node)
+        if len(adjacency_node_set) == 1 and list(adjacency_node_set)[0] not in free_variable_list:
+            new_free_variable_list.append(list(adjacency_node_set)[0])
+            cut_node_type = 'cut_free_e'  # A free node is cut, the connected existential node become free
+        else:
+            cut_node_type = 'cut_free_f'
+    else:
+        cut_node_type = 'cut_existential_or_constant'
+    another_candidate_set = deepcopy(new_candidate_set)
+    sub_answer, sub_exist_answer = csp_efox(new_sub_graph, new_sub_neg_graph, new_candidate_set,
+                                            data_graph, new_free_variable_list)
+    if sub_exist_answer:
+        if cut_node_type == 'cut_existential_or_constant':
+            return sub_answer, sub_exist_answer
+        else:
+            assert len(adjacency_node_set) == 1  # This may not right because of fixed point (only one candidate).
+            adjacency_node = list(adjacency_node_set)[0]
+            correspond_dict = node_pair_correspondence(
+                adjacency_node, to_cut_node, sub_graph, neg_sub_graph, another_candidate_set, data_graph)
+            new_answer_list = []
+            for answer_instance in sub_answer:
+                adj_ans = answer_instance[adjacency_node]
+                cut_node_instance_candidate = correspond_dict[adj_ans]
+                cut_node_instance_set = cut_node_candidate_set.intersection(cut_node_instance_candidate)
+                for cut_node_candidate in cut_node_instance_set:
+                    new_answer_instance = copy.deepcopy(answer_instance)
+                    if cut_node_type == 'cut_free_f':  # Extend the answer, list appending.
+                        new_answer_instance[to_cut_node] = cut_node_candidate
+                    else:  # Change the answer accordingly.
+                        new_answer_instance[to_cut_node] = cut_node_candidate
+                        new_answer_instance.pop(adjacency_node)
+                    new_answer_list.append(new_answer_instance)
+            return new_answer_list, bool(len(new_answer_list))
     else:
         return None, False
 
@@ -524,7 +759,7 @@ def ground_variable(sample_matrix, data_matrix):
     else:
         node_num = sample_matrix.shape[0]
         if node_num == 1:
-            random_ans = random.randint(0, data_matrix.shape[0])
+            random_ans = random.randint(0, data_matrix.shape[0] - 1)
             now_ans = [random_ans]
             return now_ans, True
         elif node_num == 3:
@@ -550,9 +785,9 @@ def matrix_pair_filter(node1, node2, candidate1_list, sample_matrix, data_matrix
     candidate2_set = set()
     for candidate1 in candidate1_list:
         if sample_matrix[node1, node2] > 0:
-            candidate2_list = np.where(data_matrix[:, candidate1] >= sample_matrix[node1, node2])[0]
+            candidate2_list = np.where(data_matrix[candidate1] >= sample_matrix[node1, node2])[0]
         else:  # sample_matrix[node2, node1] > 0
-            candidate2_list = np.where(data_matrix[candidate1] >= sample_matrix[node2, node1])[0]
+            candidate2_list = np.where(data_matrix[:, candidate1] >= sample_matrix[node2, node1])[0]
         candidate2_set.update(set(candidate2_list))
     return candidate2_set
 

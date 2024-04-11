@@ -15,7 +15,7 @@ Term = e[number]
 """
 from typing import Union
 
-from .fof import Conjunction, Disjunction, Formula, Lobject, Negation, BinaryPredicate, Term, DisjunctiveFormula, \
+from .foq import Conjunction, Disjunction, Formula, Lobject, Negation, Atomic, Term, DisjunctiveFormula, \
     ConjunctiveFormula
 
 
@@ -84,7 +84,7 @@ def parse_lstr_to_lformula(lstr: str) -> Formula:
         sub_lstr = _lstr[1:]
         sub_formula = parse_lstr_to_lformula(sub_lstr)
         if sub_formula.op == 'pred':
-            sub_formula.skolem_negation = True
+            sub_formula.negated = True
         return Negation(formula=sub_formula)
 
     binary_operator_index = -1
@@ -114,14 +114,14 @@ def parse_lstr_to_lformula(lstr: str) -> Formula:
         term2 = parse_term(term2_name)
         if predicate_name.isnumeric():
             predicate_id = int(predicate_name)
-            predicate = BinaryPredicate(name="predicate_by_id",
-                                        head=term1,
-                                        tail=term2)
+            predicate = Atomic(name="predicate_by_id",
+                               head=term1,
+                               tail=term2)
             predicate.relation_id_list.append(predicate_id)
         else:
-            predicate = BinaryPredicate(name=predicate_name,
-                                        head=term1,
-                                        tail=term2)
+            predicate = Atomic(name=predicate_name,
+                               head=term1,
+                               tail=term2)
 
         return predicate
 
@@ -137,7 +137,7 @@ def parse_lstr_to_lformula_v2(lstr: str) -> Formula:
         sub_lstr = _lstr[1:]
         sub_formula = parse_lstr_to_lformula_v2(sub_lstr)
         if sub_formula.op == 'pred':
-            sub_formula.skolem_negation = True
+            sub_formula.negated = True
         return Negation(formula=sub_formula)
 
     # identify top-level operator
@@ -169,14 +169,14 @@ def parse_lstr_to_lformula_v2(lstr: str) -> Formula:
             term2 = parse_term(term2_name)
             if predicate_name.isnumeric():
                 predicate_id = int(predicate_name)
-                predicate = BinaryPredicate(name="predicate_by_id",
-                                            head=term1,
-                                            tail=term2)
+                predicate = Atomic(name="predicate_by_id",
+                                   head=term1,
+                                   tail=term2)
                 predicate.relation_id_list.append(predicate_id)
             else:
-                predicate = BinaryPredicate(name=predicate_name,
-                                            head=term1,
-                                            tail=term2)
+                predicate = Atomic(name=predicate_name,
+                                   head=term1,
+                                   tail=term2)
             return predicate
     else:  # compute the connective in the outer
         assert _lstr[finish_index + 1] in "&|"
@@ -288,8 +288,8 @@ def copy_formula(now_formula: Union[Formula, Term]) -> Union[Formula, Term]:
         _q = Term(state=now_formula.state, name=now_formula.name)
         return _q
     elif op == 'pred':
-        _q = BinaryPredicate(name=now_formula.name, head=copy_formula(now_formula.head),
-                             tail=copy_formula(now_formula.tail))
+        _q = Atomic(name=now_formula.name, head=copy_formula(now_formula.head),
+                    tail=copy_formula(now_formula.tail))
         return _q
     elif op == 'neg':
         _q = Negation(copy_formula(now_formula.formula))

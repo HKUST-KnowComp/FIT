@@ -1,0 +1,84 @@
+action: ['train', 'valid', 'test']  # one of [train, train+valid, train+test, valid, test]
+seed: 0
+cuda: 0
+data:
+  data_folder: data/NELL-EFO1
+  cpu: 10
+  data_prefix: real_EFO1
+load:
+  load_model: False
+  checkpoint_path: None
+  step: 0
+output:
+  output_path: null
+  prefix: EFO-1_log
+train:
+  size_limit: null
+  L2_reg: 0
+  formula_split: all
+  negative_sample_size: 128  # for each positive sample
+  batch_size: 64
+  learning_rate: 0.0001
+  steps: 5000
+  log_every_steps: 100
+  warm_up_steps: 2500
+  evaluate_every_steps: 250
+  save_every_steps: 250
+  formula_id_file: 'data/FIT_finetune3i3in.csv'
+  loss_function: BCE
+evaluate:  # only used when valid/test in action
+  batch_size: 250
+  print: true
+  formula_id_file: data/FIT_quick_evaluate.csv
+estimator:
+  embedding: FIT # one of [Transe, box, beta, dm]
+  beta:
+    entity_dim: 400
+    relation_dim: 400
+    hidden_dim: 1600
+    num_layers: 2
+    # evaluate_union: DM # one of [DM, DNF] after parsing it can be omitted
+    gamma: 60
+  box:
+    entity_dim: 400
+    relation_dim: 400
+    offset_activation: None
+    center_reg: 0.02
+    gamma: 60
+  dm:
+    entity_dim: 2
+    relation_dim: 2
+    hidden_dim: 1600
+    num_layers: 2
+  logic:
+    entity_dim: 400
+    relation_dim: 400
+    hidden_dim: 1600
+    num_layers: 2
+    gamma: 0.375
+    t_norm: luk
+    bounded: 0
+    use_att: 1
+    use_gtrans: 0
+  cqd:
+    entity_dim: 1000 # actually 2000
+    relation_dim: 1000
+    norm_type: product
+  NewLook:
+    entity_dim: 400
+    relation_dim: 400
+    center_reg: 0.2
+    x_reg: 0.2 # \lambda in the paper
+  FIT:
+    kge_path: pretrain/cqd/NELL.pt
+    matrix_path: null
+    kge: complex
+    head_batch: 1
+    threshold: 0.0002
+    epsilon: 0.001
+    e_norm: Godel
+    c_norm: product
+    max_enumeration: 10
+    sparse: False
+    freeze_ent: True
+

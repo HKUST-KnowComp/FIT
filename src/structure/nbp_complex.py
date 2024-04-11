@@ -50,13 +50,15 @@ class ComplEx(NeuralBinaryPredicate, nn.Module):
         return torch.sigmoid(score / self.scale)
 
     def estimate_tail_emb(self, head_emb, rel_emb):
-        lhs = head_emb[:, :self.embedding_dim], head_emb[:, self.embedding_dim:]
-        rel = rel_emb[:, :self.embedding_dim], rel_emb[:, self.embedding_dim:]
+#        lhs = head_emb[:, :self.embedding_dim], head_emb[:, self.embedding_dim:]
+#        rel = rel_emb[:, :self.embedding_dim], rel_emb[:, self.embedding_dim:]
+        lhs = torch.chunk(head_emb, 2, -1)
+        rel = torch.chunk(rel_emb, 2, -1)
 
         return torch.cat([
             lhs[0] * rel[0] - lhs[1] * rel[1],
             lhs[0] * rel[1] + lhs[1] * rel[0]
-        ], 1)
+        ], -1)
 
     def estimate_head_emb(self, tail_emb, rel_emb):
         rhs = tail_emb[:, :self.embedding_dim], tail_emb[:, self.embedding_dim:]
@@ -76,8 +78,15 @@ class ComplEx(NeuralBinaryPredicate, nn.Module):
             lhs[0] * rhs[1] - lhs[1] * rhs[0]
         ], 1)
 
-    def get_relation_emb(self, relation_id_or_tensor):
+    def get_relation_emb(self, relation_id_or_tensor, inv=False):
         rel_id = torch.tensor(relation_id_or_tensor, device=self.device)
+        if inv:
+            pair_id = torch.div(rel_id, 2, rounding_mode='floor')
+            origin_modulo_id = torch.remainder(rel_id, 2)
+            inv_modulo_id_raw = origin_modulo_id + 1
+            inv_modulo_id = torch.remainder(inv_modulo_id_raw, 2)
+            rel_id = pair_id * 2 + inv_modulo_id
+
         return self._relation_embedding(rel_id)
 
     def get_entity_emb(self, entity_id_or_tensor):
@@ -87,22 +96,6 @@ class ComplEx(NeuralBinaryPredicate, nn.Module):
     def entity_pair_scoring(self, emb1, emb2):
         scores = torch.sum(emb1 * emb2, dim=-1)
         return scores
-
-    def get_rhs(self, chunk_begin: int, chunk_size: int):
-        return self.embeddings[0].weight.data[
-            chunk_begin:chunk_begin + chunk_size
-        ].transpose(0, 1)
-
-    def get_queries(self, queries: torch.Tensor):
-        lhs = self.embeddings[0](queries[:, 0])
-        rel = self.embeddings[1](queries[:, 1])
-        lhs = lhs[:, :self.embedding_dim], lhs[:, self.embedding_dim:]
-        rel = rel[:, :self.embedding_dim], rel[:, self.embedding_dim:]
-
-        return torch.cat([
-            lhs[0] * rel[0] - lhs[1] * rel[1],
-            lhs[0] * rel[1] + lhs[1] * rel[0]
-        ], 1)
 
     def get_random_entity_embed(self, batch_size):
         return torch.normal(0, 1e-3, (batch_size, self.embedding_dim * 2), device=self.device, requires_grad=True)

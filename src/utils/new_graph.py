@@ -8,6 +8,8 @@ import numpy as np
 import sys
 import shutil
 
+from src.utils.class_util import fixed_depth_nested_dict
+
 
 
 def fill_dict_to_array(whole_dict, array, depth2key, now_depth, full_depth):
@@ -170,7 +172,7 @@ def pickle_select_form(pickle_path, test_step, meta_key_list, fixed_dict, normal
     output_data.to_csv(os.path.join(pickle_path, f'chose_form_{normal_form}.csv'))
 
 
-def process_output_whole_folder(whole_folder, use_MAML, auto_delete, mode, fixed_dict, percentage=False,
+def process_output_whole_folder(whole_folder, meta_key_list, auto_delete, mode, fixed_dict, percentage=False,
                                 transpose=False):
     output_dict = {}
     exist_sub_dir = False
@@ -179,7 +181,7 @@ def process_output_whole_folder(whole_folder, use_MAML, auto_delete, mode, fixed
         full_sub_path = os.path.join(whole_folder, sub_file)
         if os.path.isdir(full_sub_path) and sub_file != '.ipynb_checkpoints':
             exist_sub_dir = True
-            sub_output_dict = process_output_whole_folder(full_sub_path, use_MAML, auto_delete, mode, fixed_dict,
+            sub_output_dict = process_output_whole_folder(full_sub_path, meta_key_list, auto_delete, mode, fixed_dict,
                                                           percentage, transpose)
             output_dict.update(sub_output_dict)
     if not exist_sub_dir:  # The final dir that contains output
@@ -194,21 +196,11 @@ def process_output_whole_folder(whole_folder, use_MAML, auto_delete, mode, fixed
         largest_ckpt_step = max(ckpt_step_list) if ckpt_step_list else 0
         print(f'processing folder {whole_folder}， {len(logging_mode_step)}')
         if len(logging_mode_step):
-            if use_MAML:
-                new_merge_pickle(whole_folder, sorted(logging_mode_step),
-                                 ["step", "adaptation_step", "formula", "metric"], mode)
-                new_read_merge_pickle(whole_folder, {'metric': 'MRR', 'adaptation_step': 5}, mode=mode,
-                                      percentage=percentage, transpose=transpose)
-                new_read_merge_pickle(whole_folder, {'metric': 'MRR', 'step': max(logging_mode_step)}, mode=mode,
-                                      percentage=percentage, transpose=transpose)
-            else:
-                new_merge_pickle(whole_folder, sorted(logging_mode_step),
-                                 ["step", "formula", "metric"], mode)
-                new_fixed_dict = copy.deepcopy(fixed_dict)
-                if 'step' in fixed_dict and fixed_dict['step'] == 'last':
-                    new_fixed_dict['step'] = max(logging_mode_step)
-                new_read_merge_pickle(whole_folder, new_fixed_dict, mode=mode, percentage=percentage,
-                                      transpose=transpose)
+            new_merge_pickle(whole_folder, sorted(logging_mode_step), meta_key_list, mode)
+            new_fixed_dict = copy.deepcopy(fixed_dict)
+            if 'step' in fixed_dict and fixed_dict['step'] == 'last':
+                new_fixed_dict['step'] = max(logging_mode_step)
+            new_read_merge_pickle(whole_folder, new_fixed_dict, mode=mode, percentage=percentage, transpose=transpose)
         output_dict[whole_folder] = largest_ckpt_step
         logging_file_num = len([log_name for log_name in file_list if log_name.endswith('pickle')])
         if largest_ckpt_step == 0 and logging_file_num == 0:
@@ -233,5 +225,68 @@ def aggregate_test(folder_path, prefix, delete_segmented):
                 shutil.rmtree(os.path.join(folder_path, sub_file))
 
 
+def merge_EFOX_data(folder_path, all_formula_data_file):
+    all_formula_data = pd.read_csv(all_formula_data_file)
+    marinal_log, joint_log = fixed_depth_nested_dict(float, 2), fixed_depth_nested_dict(float, 2)
+    EFO1_log = fixed_depth_nested_dict(float, 2)
+    marginal_metric_list = ['marginal_MRR', 'marginal_HITS1', 'marginal_HITS3', 'marginal_HITS10', 'num_queries']
+    joint_metric_list = ['couple_MRR', 'HITS1*1', 'HITS3*3', 'HITS10*10', 'MRR', 'HITS1', 'HITS3', 'HITS10',
+                         'num_queries']
+    EFO1_metric_list = ['MRR', 'HITS1', 'HITS3', 'HITS10', 'num_queries']
+    for i, row in all_formula_data.iterrows():
+        formula_id, formula = row['formula_id'], row['formula']
+        with open(os.path.join(folder_path, f'all_logging_test_0_{formula_id}.pickle'), 'rb') as f:
+            single_log = pickle.load(f)
+            two_mar_log, one_mar_log, no_mar_log = single_log[formula]
+            if row['f_num'] != 1:
+                for key in marginal_metric_list:
+                    marinal_log[formula][key] += two_mar_log[key]
+                    marinal_log[formula][key] += one_mar_log[key]
+                if marinal_log[formula]['num_queries'] != 0:
+                    for key in marinal_log[formula]:
+                        if key != 'num_queries':
+                            marinal_log[formula][key] /= marinal_log[formula]['num_queries']
+                for key in joint_metric_list:
+                    joint_log[formula][key] += two_mar_log[key]
+                    joint_log[formula][key] += one_mar_log[key]
+                    joint_log[formula][key] += no_mar_log[key]
+                for key in joint_log[formula]:
+                    if key != 'num_queries':
+                        joint_log[formula][key] /= joint_log[formula]['num_queries']
+            else:
+                EFO1_log[formula] = two_mar_log
+                for key in EFO1_log[formula]:
+                    if key != 'num_queries':
+                        EFO1_log[formula][key] /= EFO1_log[formula]['num_queries']
 
-process_output_whole_folder('results/sparse/237', False, False, 'test', {'step': 0}, True, False)
+    pd.DataFrame(marinal_log).T.to_csv(os.path.join(folder_path, 'marginal_log.csv'))
+    pd.DataFrame(joint_log).T.to_csv(os.path.join(folder_path, 'joint_log.csv'))
+    pd.DataFrame(EFO1_log).T.to_csv(os.path.join(folder_path, 'EFO1_log.csv'))
+    return marinal_log, joint_log, EFO1_log
+
+# output_dict = process_output_whole_folder('EFO-1_log/operator_MAML_LogicE/10_27', True, False)
+# process_output_whole_folder('EFO-1_log/original4compare', False, False)
+file_list = os.listdir('EFO-1_log/test_EFO1/FIT_NELL_aggregate')
+pickle_list = [file_name for file_name in file_list if file_name.endswith('pickle')]
+for pickle_file in pickle_list:
+    with open(os.path.join('EFO-1_log/test_EFO1/FIT_NELL_aggregate', pickle_file), 'rb') as f:
+        single_log = pickle.load(f)
+        formula = list(single_log.keys())[0]
+        MRR = single_log[formula]['MRR'] / single_log[formula]['num_queries'] * 100
+        print(f'{formula}: {MRR}')
+
+
+process_output_whole_folder('EFO-1_log/real_EFO1', ["step", "formula", "metric"], False, 'valid', {'metric': 'MRR'}, True, False)
+process_output_whole_folder('EFO-1_log/real_EFO1', ["step", "formula", "metric"], False, 'test', {'metric': 'MRR'}, True, False)
+process_output_whole_folder('EFO-1_log/test_EFO1', ["step", "formula", "metric"], False, 'test', {'metric': 'MRR'}, True, False)
+# output_dict = process_output_whole_folder('EFO-1_log/operator_MAML_LogicE/10_10', False, False)
+#
+# aggregate_test('EFO-1_log/test_urgent', 'LogicE_0001_eval_False_lr_0.004', True)
+# remove_checkpoint('EFO-1_log/operator_MAML_LogicE/11_9', [], True)
+# remove_checkpoint('EFO-1_log/operator_MAML_LogicE/11_6', [], True)
+fb237_result = {
+    'valid_faithful': 'results/sparse/torch_0.01_0.01.ckpt230118.14:34:56ed0b73c5'
+}
+
+# process_output_whole_folder('results/sparse', ["step", "formula", "metric"], True, 'test', {'step': 0}, True, False)
+# merge_EFOX_data('EFO-1_log/LogicE_FB15k-237_EFOX.yaml230531.15:26:35192a92af', 'data/DNF_EFO2_23_4123166.csv')
